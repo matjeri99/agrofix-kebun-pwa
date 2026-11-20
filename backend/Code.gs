@@ -76,7 +76,22 @@ function afWrite_(action,p,m,g,email){const lock=LockService.getScriptLock();loc
  else {if(!['ADMIN','SUPER_ADMIN'].includes(m.role))throw Error('Hanya pentadbir kebun dibenarkan');const crop=String(p.cropName||'').trim().slice(0,100);if(!crop)throw Error('Nama tanaman wajib');record={ID:id,GARDEN_ID:g,CROP_NAME:crop,VARIETY:'',PLOT:String(p.plot||'').slice(0,100),PLANTED_AT:existing?.PLANTED_AT||now,EXPECTED_HARVEST_AT:'',STATUS:'ACTIVE',COMPLETED_AT:'',NOTES:'',CREATED_BY_MEMBER_ID:m.memberId,CREATED_AT:existing?.CREATED_AT||now,UPDATED_AT:now,SYNC_STATUS:'synced',RECEIVED_AT:now}}
  const result=afSave_(table,record);afAudit_(email,g,action,id);return result
 }finally{lock.releaseLock()}}
+function afHubOverview_(email){
+ const memberships=afMemberships_(email);
+ if(!memberships.some(x=>x.role==='SUPER_ADMIN'))throw Error('Akses pentadbir induk tidak dibenarkan');
+ const gardens=afRows_('HUB_GARDENS').filter(x=>['ACTIVE','INVITED'].includes(x.STATUS));
+ const members=afRows_('MEMBERS');
+ const plantings=afRows_('PLANTINGS');
+ const activeMembers=afRows_('HUB_MEMBERSHIPS').filter(x=>x.STATUS==='ACTIVE');
+ return {gardens:gardens.map(g=>({
+  id:g.ID,name:g.NAME,status:g.STATUS,
+  members:members.filter(m=>m.GARDEN_ID===g.ID).length,
+  activePlantings:plantings.filter(x=>x.GARDEN_ID===g.ID&&x.STATUS!=='HARVEST_COMPLETED').length,
+  activeAccounts:activeMembers.filter(x=>x.GARDEN_ID===g.ID).length
+ }))};
+}
 function afRoute_(action,p,token){if(action==='requestOtp')return afOtpRequest_(p);if(action==='verifyOtp')return afOtpVerify_(p);const email=afAuth_(token);if(action==='whoami'){const u=afUser_(email);return {email,name:u.NAME,gardens:afMemberships_(email)}}
+ if(action==='getHubOverview')return afHubOverview_(email);
  const gardenId=String(p.gardenId||'');const m=afMember_(email,gardenId);
  if(action==='getGardenDashboard')return afDashboard_(gardenId);
  if(action==='getMyDashboard')return afPersonal_(m,gardenId);
