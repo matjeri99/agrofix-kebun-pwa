@@ -102,7 +102,7 @@ async function pendingPanel(){
   const info=document.createElement('div');info.style.fontSize='13px';info.style.lineHeight='1.7';
   info.textContent=[x.name,x.email,x.phone,x.gardenId,'Mohon: '+x.appliedAt].join(' · ');panel.append(info);
   for(const [label,decision] of [['Semak & Luluskan','APPROVE'],['Tolak','REJECT']]){
-   button(panel,label,async()=>{if(!confirm('Sahkan keputusan '+label+' untuk '+x.name+'?'))return;
+   button(panel,label,async()=>{if(decision==='REJECT'&&!confirm('Sahkan penolakan permohonan '+x.name+'?'))return;
      try{if(decision==='APPROVE')await reviewLegacyLink(x,reload);else{await request('decideApplication',{applicationId:x.id,decision},true);await reload()}}catch(e){alert(e.message)}
    },decision==='REJECT');
   }
