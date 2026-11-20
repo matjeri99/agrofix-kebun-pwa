@@ -1,0 +1,37 @@
+name: Deploy AgroFix Backend Gateway
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Deploy Cloudflare Worker
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npx --yes wrangler@4.160.1 deploy
+      - name: Configure Apps Script URL secret
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VALUE: ${{ secrets.AGROFIX_APPS_SCRIPT_URL }}
+        run: |
+          test -n "$VALUE"
+          printf '%s' "$VALUE" | npx --yes wrangler@4.160.1 secret put APPS_SCRIPT_URL
+      - name: Configure Gateway secret
+        working-directory: worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VALUE: ${{ secrets.AGROFIX_GATEWAY_SECRET }}
+        run: |
+          test -n "$VALUE"
+          printf '%s' "$VALUE" | npx --yes wrangler@4.160.1 secret put AGROFIX_GATEWAY_SECRET
