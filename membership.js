@@ -68,7 +68,7 @@ async function pendingPanel(){
   const panel=document.createElement('div');panel.style.cssText='background:#f1f7f1;border-radius:13px;padding:12px;margin:12px 0';
   const info=document.createElement('div');info.style.fontSize='13px';info.style.lineHeight='1.7';
   info.textContent=[x.name,x.email,x.phone,x.gardenId,'Mohon: '+x.appliedAt].join(' · ');panel.append(info);
-  for(const [label,decision] of [['Luluskan','APPROVE'],['Tolak','REJECT']]){
+  for(const [label,decision] of [['Semak & Luluskan','APPROVE'],['Tolak','REJECT']]){
    button(panel,label,async()=>{if(!confirm('Sahkan keputusan '+label+' untuk '+x.name+'?'))return;
      try{await request('decideApplication',{applicationId:x.id,decision},true);await reload()}catch(e){alert(e.message)}
    },decision==='REJECT');
