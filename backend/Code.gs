@@ -178,7 +178,7 @@ function afDecide_(email,p){
  if(!existing)afSpreadsheet_().getSheetByName('HUB_USERS').appendRow([x.EMAIL,x.NAME,'ACTIVE',afTime_()]);
  afSpreadsheet_().getSheetByName('HUB_MEMBERSHIPS').appendRow([x.EMAIL,x.GARDEN_ID,'MEMBER','ACTIVE',memberId,afTime_(),email]);
  x.STATUS='APPROVED';x.DECIDED_AT=afTime_();x.DECIDED_BY=email;x.MEMBER_ID=memberId;
- afSave_('HUB_APPLICATIONS',x);afAudit_(email,g.ID,'approveApplication',x.ID);return {status:'APPROVED'};
+ afSave_('HUB_APPLICATIONS',x);afAudit_(email,x.GARDEN_ID,'approveApplication',x.ID);return {status:'APPROVED'};
  }finally{lock.releaseLock()}
 }
 function afAssignAdmin_(email,p){
