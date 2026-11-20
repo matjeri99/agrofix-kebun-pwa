@@ -25,6 +25,18 @@
     }
     $('#checkin').innerHTML=personal?.openAttendance?'🏁 Selesai berkebun dah!!<small>Saya hendak pulang</small>':'🟢 Hai Kebun!!<small>Saya sudah sampai</small>';
   }
+  function setSignedInUI(){
+    const button=$('#profile [data-needlogin]');
+    if(button){button.textContent=me?'Log keluar AgroFix':'Log Masuk AgroFix';button.onclick=()=>{
+      if(!me){loginFlow();return}
+      sessionStorage.removeItem(tokenKey);token='';me=null;selected='';dash=null;personal=null;plants=[];
+      updateCounts();setSignedInUI();location.reload();
+    }}
+    const dashboardNote=$('#dashboard .notice');
+    if(dashboardNote)dashboardNote.hidden=!!me;
+    const gardenNote=$('#garden .notice');
+    if(gardenNote)gardenNote.textContent=me?'Kebun yang dipaparkan adalah mengikut keahlian yang diluluskan.':'Log masuk untuk mengakses rekod kebun anda.';
+  }
   function fillGardens(){
     const s=$('#gardenSelect');s.replaceChildren();
     (me?.gardens||[]).forEach(g=>{const o=document.createElement('option');o.value=g.id;o.textContent=g.name;s.append(o)});
@@ -34,8 +46,42 @@
   async function refresh(){
     if(!token||!selected)return;const [stats,pers,crops]=await Promise.all([api('getGardenDashboard',{gardenId:selected}),api('getMyDashboard',{gardenId:selected}),api('listPlantings',{gardenId:selected})]);
     dash=stats;personal=pers;plants=crops||[];updateCounts();
-    const box=$('#garden .empty');if(box){box.textContent=plants.length?plants.map(x=>x.cropName+(x.plot?' · '+x.plot:'')).join(' • '):'Belum ada tanaman direkodkan.'}
-    const activity=$('#activity .empty');if(activity){const a=(personal?.recent||[]).filter(x=>x.kind==='activity');activity.textContent=a.length?a.map(x=>x.title+' · '+x.at).join(' | '):'Belum ada aktiviti direkodkan.'}
+    const box=$('#garden .empty');if(box){
+      box.replaceChildren();
+      if(!plants.length){box.textContent='Belum ada tanaman direkodkan.'}
+      else{
+        const list=document.createElement('ul');
+        list.style.cssText='list-style:none;padding:0;margin:0;display:grid;gap:9px';
+        for(const item of plants){
+          const li=document.createElement('li');
+          li.style.cssText='padding:9px 11px;border-radius:12px;background:#eff6ee;color:#204c43';
+          const name=document.createElement('strong');
+          name.textContent=item.cropName||'Tanaman';
+          li.append(name);
+          if(item.plot){const sub=document.createElement('div');sub.style.cssText='font-size:13px;color:#61746d;margin-top:2px';sub.textContent='📍 '+item.plot;li.append(sub)}
+          list.append(li);
+        }
+        box.append(list);
+      }
+    }
+    const activity=$('#activity .empty');if(activity){
+      activity.replaceChildren();
+      const activities=(personal?.recent||[]).filter(x=>x.kind==='activity');
+      if(!activities.length)activity.textContent='Belum ada aktiviti direkodkan.';
+      else{
+        const list=document.createElement('ul');list.style.cssText='list-style:none;margin:0;padding:0;display:grid;gap:9px';
+        for(const x of activities){
+          const li=document.createElement('li');li.style.cssText='padding:10px;border-bottom:1px solid #edf1ed';
+          const heading=document.createElement('strong');heading.textContent=x.title||'Aktiviti';li.append(heading);
+          const when=document.createElement('div');when.style.cssText='font-size:12px;color:#687772;margin-top:4px';
+          const date=new Date(x.at);when.textContent=Number.isNaN(date.getTime())?(x.at||'') : new Intl.DateTimeFormat('ms-MY',{dateStyle:'medium',timeStyle:'short',timeZone:'Asia/Kuala_Lumpur'}).format(date);
+          li.append(when);
+          if(x.detail){const detail=document.createElement('div');detail.textContent=x.detail;li.append(detail)}
+          list.append(li);
+        }
+        activity.append(list);
+      }
+    }
     const record=$('#profile .empty');if(record){record.textContent='Sesi kehadiran: '+n(personal?.attendanceSessions)+' · Aktiviti: '+n(personal?.activityCount)}
   }
   async function loginFlow(){
@@ -57,7 +103,7 @@
   }
   async function loadProfile(){
     me=await api('whoami');if(!me.gardens?.length)throw Error('Keahlian kebun belum diluluskan');
-    fillGardens();await refresh();$("#checkin").disabled=false;
+    fillGardens();await refresh();setSignedInUI();$("#checkin").disabled=false;
   }
   async function save(action,payload){
     if(working)return;working=true;try{
@@ -84,8 +130,9 @@
   $('#checkin').onclick=async()=>{if(!me){await loginFlow();return}if(personal?.openAttendance){if(working)return;working=true;try{await api('punchOut',{id:personal.openAttendance.id,gardenId:selected});await refresh();alertBox('Sesi selesai','Masa keluar kebun telah direkodkan.')}catch(e){alertBox('Tidak berjaya',e.message)}finally{working=false}}else await save('punchIn',{})};
   const quick=document.querySelectorAll('#home .quick button');['activity','harvest','sale'].forEach((k,i)=>{if(quick[i])quick[i].onclick=()=>createForm(k)});
   document.querySelectorAll('[data-needlogin]').forEach(x=>x.onclick=()=>loginFlow());
+  setSignedInUI();
   $('#gardenSelect').addEventListener('change',async()=>{if(!me)return;updateGarden();try{await refresh()}catch(e){alertBox('Gagal memuatkan kebun',e.message)}});
-  $('#settings').onclick=()=>{if(!me)loginFlow();else alertBox('AgroFix Kebun','Log masuk sebagai '+me.name+'. Untuk keluar, muat semula selepas menutup sesi melalui tetapan browser.')};
+  $('#settings').onclick=()=>{if(!me)loginFlow();else alertBox('AgroFix Kebun','Log masuk sebagai '+me.name+'. Untuk log keluar, buka Rekod Saya dan tekan Log keluar AgroFix.')};
   if(token)loadProfile().catch(e=>{sessionStorage.removeItem(tokenKey);token='';me=null;updateCounts();alertBox('Sesi tamat',e.message)});
   updateCounts();
 })();
