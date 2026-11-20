@@ -18,6 +18,13 @@ const AF_TABLES={
  HUB_MEMBERSHIPS:['EMAIL','GARDEN_ID','ROLE','STATUS','MEMBER_ID','APPROVED_AT','APPROVED_BY'],
  HUB_AUDIT:['ID','AT','ACTOR','GARDEN_ID','ACTION','RECORD_ID','DETAIL'],
  HUB_APPLICATIONS:['ID','NAME','PHONE','EMAIL','GARDEN_ID','STATUS','APPLIED_AT','DECIDED_AT','DECIDED_BY','MEMBER_ID','CONSENT_AT'],
+ GARDEN_PROJECT_PROFILE:['GARDEN_ID','PROJECT_NAME','PROJECT_ID','ORGANIZATION_NAME','REGISTRATION_NO','PHONE','POSTAL_ADDRESS','FARM_ADDRESS','SERVICE_AREA','PREPARED_BY','UPDATED_AT','UPDATED_BY'],
+ PLANTING_DETAILS:['PLANTING_ID','GARDEN_ID','AREA_PLANTED_HA','AREA_HARVESTED_HA','PLANT_COUNT','PLANT_UNIT','PLANTING_METHOD','UPDATED_AT','UPDATED_BY'],
+ FERTILIZER_LOG:['ID','GARDEN_ID','ACTIVITY_ID','PLANTING_ID','MEMBER_ID','APPLIED_AT','PRODUCT_NAME','FERTILIZER_TYPE','QUANTITY','UNIT','METHOD','COST_RM','NOTES','CREATED_AT'],
+ PEST_CONTROL_LOG:['ID','GARDEN_ID','ACTIVITY_ID','PLANTING_ID','MEMBER_ID','APPLIED_AT','PEST_PROBLEM','PRODUCT_NAME','ACTIVE_INGREDIENT','QUANTITY','UNIT','APPLICATION_RATE','SAFETY_NOTES','PRE_HARVEST_INTERVAL_DAYS','NOTES','CREATED_AT'],
+ MAINTENANCE_LOG:['ID','GARDEN_ID','ACTIVITY_ID','ASSET_ID','MEMBER_ID','WORKED_AT','WORK_TYPE','CONDITION_BEFORE','ACTION_TAKEN','COST_RM','STATUS','NOTES','CREATED_AT'],
+ GARDEN_ASSETS:['ID','GARDEN_ID','ASSET_NAME','ASSET_TYPE','LOCATION','ACQUIRED_AT','STATUS','NOTES','CREATED_AT','UPDATED_AT'],
+ REPORT_RUNS:['ID','GARDEN_ID','REPORT_TYPE','PERIOD_START','PERIOD_END','STATUS','GENERATED_AT','GENERATED_BY','APPROVED_AT','APPROVED_BY','FILE_URL','MISSING_FIELDS','VERSION'],
  MEMBERS:['ID','NAME','PHONE','GARDEN_ID','GARDEN_NAME','REGISTERED_AT','RECEIVED_AT','SYNC_STATUS'],
  ATTENDANCE:['ID','MEMBER_ID','GARDEN_ID','CHECK_IN_AT','CHECK_OUT_AT','METHOD_IN','METHOD_OUT','SYNC_STATUS','RECEIVED_AT'],
  ACTIVITIES:['ID','MEMBER_ID','ATTENDANCE_ID','TYPE','CROP','PLOT','NOTES','CREATED_AT','SYNC_STATUS','RECEIVED_AT','PLANTING_ID'],
@@ -193,12 +200,64 @@ function afAssignAdmin_(email,p){
  }finally{lock.releaseLock()}
 }
 
+
+function afReportDraft_(email,p){
+ const gardenId=String(p.gardenId||''),period=String(p.period||''),type=String(p.reportType||'kpkm');
+ afScope_(email,gardenId);
+ if(!/^\d{4}-(0[1-9]|1[0-2])$/.test(period))throw Error('Bulan laporan tidak sah');
+ if(!['kpkm','members','activities','harvest','finance','fertilizer','pest','maintenance','plantings'].includes(type))throw Error('Jenis laporan tidak disokong');
+ const members=afRows_('MEMBERS').filter(x=>x.GARDEN_ID===gardenId);
+ const ids=new Set(members.map(x=>x.ID));
+ const inMonth=(x)=>String(x||'').slice(0,7)===period;
+ const plantings=afRows_('PLANTINGS').filter(x=>x.GARDEN_ID===gardenId);
+ const activities=afRows_('ACTIVITIES').filter(x=>ids.has(x.MEMBER_ID)&&inMonth(x.CREATED_AT));
+ const harvests=afRows_('HARVESTS').filter(x=>ids.has(x.MEMBER_ID)&&inMonth(x.CREATED_AT));
+ const sales=afRows_('SALES').filter(x=>ids.has(x.MEMBER_ID)&&inMonth(x.CREATED_AT));
+ const fertilizer=afRows_('FERTILIZER_LOG').filter(x=>x.GARDEN_ID===gardenId&&inMonth(x.APPLIED_AT));
+ const pest=afRows_('PEST_CONTROL_LOG').filter(x=>x.GARDEN_ID===gardenId&&inMonth(x.APPLIED_AT));
+ const maintenance=afRows_('MAINTENANCE_LOG').filter(x=>x.GARDEN_ID===gardenId&&inMonth(x.WORKED_AT));
+ const attendance=afRows_('ATTENDANCE').filter(x=>x.GARDEN_ID===gardenId&&inMonth(x.CHECK_IN_AT));
+ const details=afRows_('PLANTING_DETAILS').filter(x=>x.GARDEN_ID===gardenId);
+ const profile=afRows_('GARDEN_PROJECT_PROFILE').find(x=>x.GARDEN_ID===gardenId)||{};
+ const missing=[];
+ for(const field of ['PROJECT_NAME','PROJECT_ID','ORGANIZATION_NAME','PHONE','POSTAL_ADDRESS','FARM_ADDRESS','SERVICE_AREA','PREPARED_BY'])
+   if(!String(profile[field]||'').trim())missing.push('Profil projek: '+field);
+ const group={};
+ for(const x of plantings){
+  const name=String(x.CROP_NAME||'Tidak dinyatakan').trim();
+  const variety=String(x.VARIETY||'').trim();
+  const key=name+'|'+variety;
+  if(!group[key])group[key]={crop:name,variety,plantingIds:[],plantedAreaHa:null,harvestedAreaHa:null,plantCount:null,harvestKg:0};
+  group[key].plantingIds.push(x.ID);
+  const d=details.find(z=>z.PLANTING_ID===x.ID);
+  if(!d){missing.push('Butiran tanaman: '+x.ID);continue}
+  for(const [field,out] of [['AREA_PLANTED_HA','plantedAreaHa'],['AREA_HARVESTED_HA','harvestedAreaHa'],['PLANT_COUNT','plantCount']]){
+   if(String(d[field]||'').trim()==='')missing.push(field+': '+x.ID);
+   else if(Number.isFinite(Number(d[field])))group[key][out]=(group[key][out]||0)+Number(d[field]);
+  }
+ }
+ for(const h of harvests){
+  const crop=String(h.CROP||'').trim();
+  const possible=Object.values(group).filter(v=>v.crop.toLowerCase()===crop.toLowerCase());
+  if(possible.length===1&&Number.isFinite(Number(h.WEIGHT_KG)))possible[0].harvestKg+=Number(h.WEIGHT_KG);
+  else missing.push('Semak padanan hasil tuaian: '+h.ID);
+ }
+ const production=Object.values(group).map(x=>({crop:x.crop,variety:x.variety,plantedAreaHa:x.plantedAreaHa,harvestedAreaHa:x.harvestedAreaHa,plantCount:x.plantCount,harvestKg:x.harvestKg}));
+ const total=(rows,field)=>rows.reduce((n,x)=>n+(Number(x[field])||0),0);
+ return {reportType:type,period,gardenId,status:'DRAFT',profile,missingFields:[...new Set(missing)],production,
+ summary:{registeredMembers:members.length,attendances:attendance.length,activities:activities.length,plantings:plantings.length,harvests:harvests.length,harvestKg:total(harvests,'WEIGHT_KG'),salesRm:total(sales,'TOTAL_RM'),fertilizerEvents:fertilizer.length,pestControlEvents:pest.length,maintenanceEvents:maintenance.length},
+ // Lists expose only garden-scoped operational records to authorized garden administrators.
+ items:type==='fertilizer'?fertilizer:type==='pest'?pest:type==='maintenance'?maintenance:type==='activities'?activities:[],
+ generatedAt:afTime_()};
+}
+
 function afRoute_(action,p,token){if(action==='requestRegistrationOtp')return afRegistrationOtp_(p);if(action==='submitRegistration')return afRegister_(p);if(action==='requestOtp')return afOtpRequest_(p);if(action==='verifyOtp')return afOtpVerify_(p);const email=afAuth_(token);if(action==='whoami'){const u=afUser_(email);return {email,name:u.NAME,gardens:afMemberships_(email)}}
  if(action==='getHubOverview')return afHubOverview_(email);
  if(action==='listPendingApplications')return afPending_(email,p);
  if(action==='getLegacyCandidates')return afLegacyCandidates_(email,p);
  if(action==='decideApplication')return afDecide_(email,p);
  if(action==='setGardenAdmin')return afAssignAdmin_(email,p);
+ if(action==='getReportDraft')return afReportDraft_(email,p);
  const gardenId=String(p.gardenId||'');const m=afMember_(email,gardenId);
  if(action==='getGardenDashboard')return afDashboard_(gardenId);
  if(action==='getMyDashboard')return afPersonal_(m,gardenId);
