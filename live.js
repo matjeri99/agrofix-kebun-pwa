@@ -128,8 +128,12 @@
       working=true;save.disabled=true;try{await api({activity:'addActivity',harvest:'addHarvest',sale:'addSale'}[type],{id:crypto.randomUUID(),gardenId:selected,...payload});p.close();await refresh();alertBox('Rekod berjaya','Data telah disimpan dalam cloud AgroFix.')}catch(e){alertBox('Gagal menyimpan',e.message)}finally{working=false;save.disabled=false}};
   }
   $('#checkin').onclick=async()=>{if(!me){await loginFlow();return}if(personal?.openAttendance){if(working)return;working=true;try{await api('punchOut',{id:personal.openAttendance.id,gardenId:selected});await refresh();alertBox('Sesi selesai','Masa keluar kebun telah direkodkan.')}catch(e){alertBox('Tidak berjaya',e.message)}finally{working=false}}else await save('punchIn',{})};
-  const quick=document.querySelectorAll('#home .quick button');['activity','harvest','sale'].forEach((k,i)=>{if(quick[i])quick[i].onclick=()=>createForm(k)});
-  document.querySelectorAll('[data-needlogin]').forEach(x=>x.onclick=()=>loginFlow());
+  // Each record button must open its own form; never overwrite these handlers with login.
+  const quick=document.querySelectorAll('#home .quick button');
+  ['activity','harvest','sale'].forEach((kind,i)=>{if(quick[i])quick[i].onclick=()=>createForm(kind)});
+  const activityAdd=$('#activity button[data-needlogin]');
+  if(activityAdd)activityAdd.onclick=()=>createForm('activity');
+  // The profile login/logout control is managed by setSignedInUI().
   setSignedInUI();
   $('#gardenSelect').addEventListener('change',async()=>{if(!me)return;updateGarden();try{await refresh()}catch(e){alertBox('Gagal memuatkan kebun',e.message)}});
   $('#settings').onclick=()=>{if(!me)loginFlow();else alertBox('AgroFix Kebun','Log masuk sebagai '+me.name+'. Untuk log keluar, buka Rekod Saya dan tekan Log keluar AgroFix.')};
