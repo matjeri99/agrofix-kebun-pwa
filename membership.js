@@ -28,11 +28,13 @@ function gardenSelect(d){
  const l=document.createElement('label');l.textContent='Kebun komuniti';l.style.cssText='display:block;margin:12px 0;font-weight:600';
  const s=document.createElement('select');s.style.cssText='display:block;width:100%;padding:12px;border:1px solid #d2ded5;border-radius:11px;margin-top:6px';
  for(const [id,name] of GARDENS){const opt=document.createElement('option');opt.value=id;opt.textContent=name;s.append(opt)}
+ s.value=GARDENS.some(g=>g[0]==='KKB-P16')?'KKB-P16':GARDENS[0][0];
  l.append(s);d.append(l);return s;
 }
 function status(d){const p=document.createElement('p');p.style.cssText='font-size:13px;line-height:1.6;color:#316149';p.setAttribute('role','status');d.append(p);return p}
 function register(){
  const d=makeDialog('Daftar Ahli AgroFix 🌱');
+ d.style.maxHeight='min(88dvh,780px)';
  const note=document.createElement('p');note.textContent='Isi sendiri, pilih kebun dan sahkan e-mel. Pentadbir akan semak permohonan anda.';d.append(note);
  const name=control(d,'Nama penuh / nama panggilan','name');
  const phone=control(d,'Nombor telefon','phone','tel');
@@ -41,14 +43,16 @@ function register(){
  const consent=document.createElement('label');consent.style.cssText='display:flex;align-items:flex-start;gap:9px;font-size:13px;margin-top:12px';
  const tick=document.createElement('input');tick.type='checkbox';tick.style.marginTop='3px';
  const t=document.createElement('span');t.textContent='Saya bersetuju maklumat ini digunakan untuk permohonan keahlian dan pengurusan kebun yang dipilih.';consent.append(tick,t);d.append(consent);
- const code=control(d,'Kod pengesahan e-mel (6 digit)','code','text');code.maxLength=6;code.inputMode='numeric';code.parentElement.hidden=true;
+ const code=control(d,'Kod pengesahan e-mel (6 digit)','code','text');code.maxLength=6;code.inputMode='numeric';code.parentElement.style.display='none';
  const msg=status(d);
- const getCode=button(d,'Hantar kod e-mel',async()=>{getCode.disabled=true;msg.textContent='Sedang memohon kod…';try{await request('requestRegistrationOtp',{email:email.value.trim()});code.parentElement.hidden=false;msg.textContent='Kod dihantar jika alamat e-mel sah. Periksa Inbox / Spam. Kod sah selama 5 minit.'}catch(e){msg.textContent=e.message}finally{getCode.disabled=false}});
+ const getCode=button(d,'Hantar kod e-mel',async()=>{getCode.disabled=true;msg.textContent='Sedang memohon kod…';try{await request('requestRegistrationOtp',{email:email.value.trim()});code.parentElement.style.display='block';submit.disabled=false;code.focus();msg.textContent='Kod dihantar jika alamat e-mel sah. Periksa Inbox / Spam. Kod sah selama 5 minit.'}catch(e){msg.textContent=e.message}finally{getCode.disabled=false}});
  const submit=button(d,'Hantar permohonan',async()=>{if(!name.value.trim()||!phone.value.trim()||!email.value.trim()||!tick.checked||code.value.trim().length!==6){msg.textContent='Lengkapkan borang, persetujuan dan kod enam digit.';return}
  submit.disabled=true;msg.textContent='Menghantar…';
  try{const result=await request('submitRegistration',{name:name.value,phone:phone.value,email:email.value,gardenId:g.value,code:code.value,consent:true});msg.textContent='Permohonan diterima. Status: '+result.status+'. Tunggu pengesahan Admin Kebun.';submit.hidden=true;getCode.hidden=true}
  catch(e){msg.textContent=e.message}finally{submit.disabled=false}});
- button(d,'Tutup',()=>d.close(),true);
+ submit.disabled=true;
+ const close=button(d,'Tutup',()=>d.close(),true);
+ close.setAttribute('aria-label','Tutup borang pendaftaran');
 }
 async function pendingPanel(){
  if(!TOKEN())return;
