@@ -4,7 +4,7 @@
  *   APPS_SCRIPT_URL, AGROFIX_GATEWAY_SECRET
  * Var: ALLOWED_ORIGINS=https://matjeri99.github.io
  */
-const ACTIONS=new Set(['requestOtp','verifyOtp','whoami','getGardenDashboard','getMyDashboard','getHubOverview','listPlantings','punchIn','punchOut','addActivity','addHarvest','addSale','addPlanting','requestRegistrationOtp','submitRegistration','listPendingApplications','decideApplication','setGardenAdmin']);
+const ACTIONS=new Set(['requestOtp','verifyOtp','whoami','getGardenDashboard','getMyDashboard','getHubOverview','listPlantings','punchIn','punchOut','addActivity','addHarvest','addSale','addPlanting','requestRegistrationOtp','submitRegistration','listPendingApplications','decideApplication','setGardenAdmin','getLegacyCandidates']);
 function response(body,status,headers){return new Response(JSON.stringify(body),{status,headers:{...headers,'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}})}
 export default {
  async fetch(request,env){
