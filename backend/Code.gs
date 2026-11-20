@@ -10,6 +10,8 @@
  * AGROFIX_AUTH_SECRET     (different min 32 random characters)
  */
 const AF_TZ='Asia/Kuala_Lumpur';
+const AF_SPREADSHEET_ID='1Xtx7p3qOZB6h3lYOF-w8UIwRsHb8NShyjIilX2UnzJc';
+function afSpreadsheet_(){return SpreadsheetApp.openById(AF_SPREADSHEET_ID)}
 const AF_TABLES={
  HUB_GARDENS:['ID','NAME','STATUS','CREATED_AT'],
  HUB_USERS:['EMAIL','NAME','STATUS','CREATED_AT'],
@@ -26,7 +28,7 @@ const AF_TABLES={
 function afSecret_(name){const x=PropertiesService.getScriptProperties().getProperty(name)||'';if(x.length<32)throw Error('Konfigurasi server belum lengkap: '+name);return x}
 function afTime_(){return Utilities.formatDate(new Date(),AF_TZ,'yyyy-MM-dd HH:mm:ss')}
 function afEmail_(x){return String(x||'').trim().toLowerCase()}
-function afRows_(name){const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(name);if(!sh)throw Error('Jadual belum ada: '+name);const a=sh.getDataRange().getDisplayValues();if(a.length<2)return [];return a.slice(1).filter(r=>r.some(Boolean)).map(r=>Object.fromEntries(a[0].map((h,i)=>[h,String(r[i]||'')])))}
+function afRows_(name){const sh=afSpreadsheet_().getSheetByName(name);if(!sh)throw Error('Jadual belum ada: '+name);const a=sh.getDataRange().getDisplayValues();if(a.length<2)return [];return a.slice(1).filter(r=>r.some(Boolean)).map(r=>Object.fromEntries(a[0].map((h,i)=>[h,String(r[i]||'')])))}
 function afJson_(x){return ContentService.createTextOutput(JSON.stringify(x)).setMimeType(ContentService.MimeType.JSON)}
 function doGet(){return afJson_({ok:true,service:'AgroFix Kebun Hub',version:'1.1.0'})}
 function doPost(e){try{
@@ -45,7 +47,7 @@ function afOtpRequest_(payload){const email=afEmail_(payload.email);if(!/^[^\s@]
  const user=afUser_(email);const memberships=user?afMemberships_(email):[];
  if(!user||!memberships.length)return {message:'Permintaan diterima'};
  const cache=CacheService.getScriptCache();if(cache.get('cool:'+email))throw Error('Sila tunggu 60 saat');
- const code=String(Math.floor(Math.random()*1000000)).padStart(6,'0');
+ const code=String(parseInt(Utilities.getUuid().replace(/-/g,'').slice(0,8),16)%1000000).padStart(6,'0');
  cache.put('otp:'+email,JSON.stringify({hash:afHex_(email+':'+code+':'+afSecret_('AGROFIX_AUTH_SECRET')),tries:0}),300);
  cache.put('cool:'+email,'1',60);
  MailApp.sendEmail(email,'Kod masuk AgroFix Kebun','Kod masuk anda: '+code+'\nSah selama 5 minit. Jangan kongsi kod.');
@@ -58,7 +60,7 @@ function afDashboard_(g){const members=afRows_('MEMBERS').filter(x=>x.GARDEN_ID=
  return {todayAttendance:new Set(attendance.filter(x=>x.CHECK_IN_AT.startsWith(day)).map(x=>x.MEMBER_ID)).size,memberCount:ids.size,attendanceSessions:attendance.filter(x=>x.CHECK_IN_AT.startsWith(month)).length,activityCount:acts.filter(x=>x.CREATED_AT.startsWith(month)).length,harvestKg:harvest.filter(x=>x.CREATED_AT.startsWith(month)).reduce((v,x)=>v+(Number(x.WEIGHT_KG)||0),0),salesRm:sales.filter(x=>x.CREATED_AT.startsWith(month)).reduce((v,x)=>v+(Number(x.TOTAL_RM)||0),0),activePlantings:plants.filter(x=>x.STATUS!=='HARVEST_COMPLETED').length} }
 function afPersonal_(m,g){const att=afRows_('ATTENDANCE').filter(x=>x.GARDEN_ID===g&&x.MEMBER_ID===m.memberId);const acts=afRows_('ACTIVITIES').filter(x=>x.MEMBER_ID===m.memberId);
  return {attendanceSessions:att.length,activityCount:acts.length,openAttendance:att.filter(x=>x.CHECK_IN_AT&&!x.CHECK_OUT_AT).slice(-1).map(x=>({id:x.ID}))[0]||null,recent:acts.slice(-40).reverse().map(x=>({id:x.ID,kind:'activity',title:x.TYPE,detail:x.NOTES,at:x.CREATED_AT}))}}
-function afSave_(table,record){const sh=SpreadsheetApp.getActiveSpreadsheet().getSheetByName(table),headers=AF_TABLES[table];const grid=sh.getDataRange().getDisplayValues();let row=0;for(let i=1;i<grid.length;i++)if(grid[i][0]===record.ID){row=i+1;break}const cells=headers.map(h=>record[h]??'');if(row)sh.getRange(row,1,1,headers.length).setValues([cells]);else sh.appendRow(cells);return {id:record.ID,operation:row?'updated':'inserted'}}
+function afSave_(table,record){const sh=afSpreadsheet_().getSheetByName(table),headers=AF_TABLES[table];const grid=sh.getDataRange().getDisplayValues();let row=0;for(let i=1;i<grid.length;i++)if(grid[i][0]===record.ID){row=i+1;break}const cells=headers.map(h=>record[h]??'');if(row)sh.getRange(row,1,1,headers.length).setValues([cells]);else sh.appendRow(cells);return {id:record.ID,operation:row?'updated':'inserted'}}
 function afAudit_(email,g,action,id){afSave_('HUB_AUDIT',{ID:Utilities.getUuid(),AT:afTime_(),ACTOR:email,GARDEN_ID:g,ACTION:action,RECORD_ID:id,DETAIL:''})}
 function afWrite_(action,p,m,g,email){const lock=LockService.getScriptLock();lock.waitLock(15000);try{
  const id=String(p.id||'').trim();if(!/^[A-Za-z0-9_-]{8,80}$/.test(id))throw Error('ID rekod tidak sah');const now=afTime_();
