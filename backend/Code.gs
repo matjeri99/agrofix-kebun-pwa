@@ -17,6 +17,7 @@ const AF_TABLES={
  HUB_USERS:['EMAIL','NAME','STATUS','CREATED_AT'],
  HUB_MEMBERSHIPS:['EMAIL','GARDEN_ID','ROLE','STATUS','MEMBER_ID','APPROVED_AT','APPROVED_BY'],
  HUB_AUDIT:['ID','AT','ACTOR','GARDEN_ID','ACTION','RECORD_ID','DETAIL'],
+ HUB_APPLICATIONS:['ID','NAME','PHONE','EMAIL','GARDEN_ID','STATUS','APPLIED_AT','DECIDED_AT','DECIDED_BY','MEMBER_ID','CONSENT_AT'],
  MEMBERS:['ID','NAME','PHONE','GARDEN_ID','GARDEN_NAME','REGISTERED_AT','RECEIVED_AT','SYNC_STATUS'],
  ATTENDANCE:['ID','MEMBER_ID','GARDEN_ID','CHECK_IN_AT','CHECK_OUT_AT','METHOD_IN','METHOD_OUT','SYNC_STATUS','RECEIVED_AT'],
  ACTIVITIES:['ID','MEMBER_ID','ATTENDANCE_ID','TYPE','CROP','PLOT','NOTES','CREATED_AT','SYNC_STATUS','RECEIVED_AT','PLANTING_ID'],
@@ -90,8 +91,81 @@ function afHubOverview_(email){
   activeAccounts:activeMembers.filter(x=>x.GARDEN_ID===g.ID).length
  }))};
 }
-function afRoute_(action,p,token){if(action==='requestOtp')return afOtpRequest_(p);if(action==='verifyOtp')return afOtpVerify_(p);const email=afAuth_(token);if(action==='whoami'){const u=afUser_(email);return {email,name:u.NAME,gardens:afMemberships_(email)}}
+
+function afRegistrationOtp_(p){
+ const email=afEmail_(p.email);
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))throw Error('E-mel tidak sah');
+ const cache=CacheService.getScriptCache();
+ if(cache.get('regcool:'+email))throw Error('Sila tunggu 60 saat');
+ const code=String(parseInt(Utilities.getUuid().replace(/-/g,'').slice(0,8),16)%1000000).padStart(6,'0');
+ cache.put('regotp:'+email,JSON.stringify({hash:afHex_(email+':'+code+':'+afSecret_('AGROFIX_AUTH_SECRET')),tries:0}),300);
+ cache.put('regcool:'+email,'1',60);
+ MailApp.sendEmail(email,'Pengesahan pendaftaran AgroFix Kebun','Kod pendaftaran: '+code+'\nSah selama 5 minit.');
+ return {message:'Jika e-mel sah, kod pengesahan dihantar'};
+}
+function afRegister_(p){
+ const email=afEmail_(p.email),name=String(p.name||'').trim().slice(0,120),phone=String(p.phone||'').replace(/[^\d+]/g,'').slice(0,20),g=String(p.gardenId||''),code=String(p.code||'');
+ if(name.length<3||!/^(?:\+?60|0)1\d{8,9}$/.test(phone))throw Error('Nama atau nombor telefon tidak sah');
+ if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)||!p.consent)throw Error('E-mel dan persetujuan diperlukan');
+ if(!afRows_('HUB_GARDENS').some(x=>x.ID===g&&['INVITED','ACTIVE'].includes(x.STATUS)))throw Error('Kebun tidak tersedia');
+ const cache=CacheService.getScriptCache(),key='regotp:'+email,raw=cache.get(key);if(!raw)throw Error('Kod pengesahan tamat tempoh');
+ const entry=JSON.parse(raw);
+ if(entry.tries>=5){cache.remove(key);throw Error('Terlalu banyak cubaan')}
+ if(!/^\d{6}$/.test(code)||entry.hash!==afHex_(email+':'+code+':'+afSecret_('AGROFIX_AUTH_SECRET'))){entry.tries++;cache.put(key,JSON.stringify(entry),240);throw Error('Kod tidak sepadan')}
+ const lock=LockService.getScriptLock();lock.waitLock(15000);try{
+  if(afRows_('HUB_MEMBERSHIPS').some(x=>x.EMAIL===email&&x.GARDEN_ID===g&&x.STATUS==='ACTIVE'))throw Error('Anda sudah menjadi ahli kebun');
+  const pending=afRows_('HUB_APPLICATIONS').find(x=>x.EMAIL===email&&x.GARDEN_ID===g&&x.STATUS==='PENDING');
+  if(pending){cache.remove(key);return {id:pending.ID,status:'PENDING'}}
+  const row={ID:'APP-'+Utilities.getUuid(),NAME:name,PHONE:phone,EMAIL:email,GARDEN_ID:g,STATUS:'PENDING',APPLIED_AT:afTime_(),DECIDED_AT:'',DECIDED_BY:'',MEMBER_ID:'',CONSENT_AT:afTime_()};
+  afSave_('HUB_APPLICATIONS',row);cache.remove(key);return {id:row.ID,status:'PENDING'};
+ }finally{lock.releaseLock()}
+}
+function afScope_(email,g){
+ const memberships=afMemberships_(email);
+ if(!memberships.some(m=>m.role==='SUPER_ADMIN'||(m.id===g&&m.role==='ADMIN')))throw Error('Anda bukan pentadbir kebun');
+}
+function afPending_(email,p){
+ const g=String(p.gardenId||''),roles=afMemberships_(email),superAdmin=roles.some(m=>m.role==='SUPER_ADMIN');
+ if(!superAdmin&&!roles.some(m=>m.id===g&&m.role==='ADMIN'))throw Error('Akses tidak dibenarkan');
+ return afRows_('HUB_APPLICATIONS').filter(x=>x.STATUS==='PENDING'&&(!g?superAdmin:x.GARDEN_ID===g)).map(x=>({id:x.ID,name:x.NAME,email:x.EMAIL,phone:x.PHONE,gardenId:x.GARDEN_ID,appliedAt:x.APPLIED_AT}));
+}
+function afDecide_(email,p){
+ const lock=LockService.getScriptLock();lock.waitLock(20000);try{
+ const x=afRows_('HUB_APPLICATIONS').find(a=>a.ID===p.applicationId);
+ if(!x||x.STATUS!=='PENDING')throw Error('Permohonan tidak ditemui atau telah diproses');
+ afScope_(email,x.GARDEN_ID);
+ if(p.decision==='REJECT'){x.STATUS='REJECTED';x.DECIDED_AT=afTime_();x.DECIDED_BY=email;afSave_('HUB_APPLICATIONS',x);afAudit_(email,x.GARDEN_ID,'rejectApplication',x.ID);return {status:'REJECTED'}}
+ if(p.decision!=='APPROVE')throw Error('Keputusan tidak sah');
+ if(afRows_('HUB_MEMBERSHIPS').some(y=>y.EMAIL===x.EMAIL&&y.GARDEN_ID===x.GARDEN_ID))throw Error('Keahlian sudah wujud');
+ const normalized=v=>String(v||'').replace(/\D/g,'').replace(/^60/,'0');
+ if(afRows_('MEMBERS').some(y=>y.GARDEN_ID===x.GARDEN_ID&&normalized(y.PHONE)===normalized(x.PHONE)))throw Error('Nombor telefon sepadan rekod lama. Semak dan pautkan identiti secara manual dahulu');
+ const existing=afRows_('HUB_USERS').find(y=>y.EMAIL===x.EMAIL);
+ if(existing&&existing.STATUS!=='ACTIVE')throw Error('Akaun tidak aktif, perlu semakan');
+ const memberId='MBR-'+Utilities.getUuid(),g=afRows_('HUB_GARDENS').find(y=>y.ID===x.GARDEN_ID);
+ afSave_('MEMBERS',{ID:memberId,NAME:x.NAME,PHONE:x.PHONE,GARDEN_ID:g.ID,GARDEN_NAME:g.NAME,REGISTERED_AT:afTime_(),RECEIVED_AT:afTime_(),SYNC_STATUS:'synced'});
+ if(!existing)afSpreadsheet_().getSheetByName('HUB_USERS').appendRow([x.EMAIL,x.NAME,'ACTIVE',afTime_()]);
+ afSpreadsheet_().getSheetByName('HUB_MEMBERSHIPS').appendRow([x.EMAIL,g.ID,'MEMBER','ACTIVE',memberId,afTime_(),email]);
+ x.STATUS='APPROVED';x.DECIDED_AT=afTime_();x.DECIDED_BY=email;x.MEMBER_ID=memberId;
+ afSave_('HUB_APPLICATIONS',x);afAudit_(email,g.ID,'approveApplication',x.ID);return {status:'APPROVED'};
+ }finally{lock.releaseLock()}
+}
+function afAssignAdmin_(email,p){
+ if(!afMemberships_(email).some(m=>m.role==='SUPER_ADMIN'))throw Error('Hanya Super Admin boleh melantik Admin Kebun');
+ const target=afEmail_(p.email),g=String(p.gardenId||''),role=String(p.role||'');
+ if(!['ADMIN','MEMBER'].includes(role)||target===email)throw Error('Pelantikan tidak sah');
+ const lock=LockService.getScriptLock();lock.waitLock(15000);try{
+ const sh=afSpreadsheet_().getSheetByName('HUB_MEMBERSHIPS'),rows=sh.getDataRange().getDisplayValues();
+ const index=rows.findIndex((r,i)=>i>0&&afEmail_(r[0])===target&&r[1]===g&&r[3]==='ACTIVE');
+ if(index<0)throw Error('Ahli belum diluluskan');if(rows[index][2]==='SUPER_ADMIN')throw Error('Tidak boleh mengubah Super Admin');
+ sh.getRange(index+1,3).setValue(role);afAudit_(email,g,'setGardenAdmin',target);return {role,gardenId:g,email:target};
+ }finally{lock.releaseLock()}
+}
+
+function afRoute_(action,p,token){if(action==='requestRegistrationOtp')return afRegistrationOtp_(p);if(action==='submitRegistration')return afRegister_(p);if(action==='requestOtp')return afOtpRequest_(p);if(action==='verifyOtp')return afOtpVerify_(p);const email=afAuth_(token);if(action==='whoami'){const u=afUser_(email);return {email,name:u.NAME,gardens:afMemberships_(email)}}
  if(action==='getHubOverview')return afHubOverview_(email);
+ if(action==='listPendingApplications')return afPending_(email,p);
+ if(action==='decideApplication')return afDecide_(email,p);
+ if(action==='setGardenAdmin')return afAssignAdmin_(email,p);
  const gardenId=String(p.gardenId||'');const m=afMember_(email,gardenId);
  if(action==='getGardenDashboard')return afDashboard_(gardenId);
  if(action==='getMyDashboard')return afPersonal_(m,gardenId);
