@@ -129,6 +129,23 @@ function afPending_(email,p){
  if(!superAdmin&&!roles.some(m=>m.id===g&&m.role==='ADMIN'))throw Error('Akses tidak dibenarkan');
  return afRows_('HUB_APPLICATIONS').filter(x=>x.STATUS==='PENDING'&&(!g?superAdmin:x.GARDEN_ID===g)).map(x=>({id:x.ID,name:x.NAME,email:x.EMAIL,phone:x.PHONE,gardenId:x.GARDEN_ID,appliedAt:x.APPLIED_AT}));
 }
+function afLegacyCandidates_(email,p){
+ const app=afRows_('HUB_APPLICATIONS').find(x=>x.ID===String(p.applicationId||'')&&x.STATUS==='PENDING');
+ if(!app)throw Error('Permohonan menunggu tidak ditemui');
+ afScope_(email,app.GARDEN_ID);
+ const linked=new Set(afRows_('HUB_MEMBERSHIPS').filter(x=>x.STATUS==='ACTIVE'&&x.GARDEN_ID===app.GARDEN_ID).map(x=>x.MEMBER_ID));
+ const normal=v=>String(v||'').replace(/\D/g,'').replace(/^60/,'0');
+ const search=normal(app.PHONE),name=String(app.NAME||'').trim().toLowerCase();
+ return {application:{id:app.ID,name:app.NAME,phone:app.PHONE,gardenId:app.GARDEN_ID},
+   candidates:afRows_('MEMBERS').filter(x=>x.GARDEN_ID===app.GARDEN_ID).map(x=>({
+     id:x.ID,name:x.NAME,phone:x.PHONE,
+     matchPhone:!!search&&normal(x.PHONE)===search,
+     matchName:String(x.NAME||'').trim().toLowerCase()===name,
+     alreadyLinked:linked.has(x.ID)
+   })).sort((a,b)=>Number(b.matchPhone)-Number(a.matchPhone)||Number(b.matchName)-Number(a.matchName)||a.name.localeCompare(b.name))
+ };
+}
+
 function afDecide_(email,p){
  const lock=LockService.getScriptLock();lock.waitLock(20000);try{
  const x=afRows_('HUB_APPLICATIONS').find(a=>a.ID===p.applicationId);
@@ -137,14 +154,29 @@ function afDecide_(email,p){
  if(p.decision==='REJECT'){x.STATUS='REJECTED';x.DECIDED_AT=afTime_();x.DECIDED_BY=email;afSave_('HUB_APPLICATIONS',x);afAudit_(email,x.GARDEN_ID,'rejectApplication',x.ID);return {status:'REJECTED'}}
  if(p.decision!=='APPROVE')throw Error('Keputusan tidak sah');
  if(afRows_('HUB_MEMBERSHIPS').some(y=>y.EMAIL===x.EMAIL&&y.GARDEN_ID===x.GARDEN_ID))throw Error('Keahlian sudah wujud');
- const normalized=v=>String(v||'').replace(/\D/g,'').replace(/^60/,'0');
- if(afRows_('MEMBERS').some(y=>y.GARDEN_ID===x.GARDEN_ID&&normalized(y.PHONE)===normalized(x.PHONE)))throw Error('Nombor telefon sepadan rekod lama. Semak dan pautkan identiti secara manual dahulu');
- const existing=afRows_('HUB_USERS').find(y=>y.EMAIL===x.EMAIL);
+ const existing=afRows_('HUB_USERS').find(y=>afEmail_(y.EMAIL)===afEmail_(x.EMAIL));
  if(existing&&existing.STATUS!=='ACTIVE')throw Error('Akaun tidak aktif, perlu semakan');
- const memberId='MBR-'+Utilities.getUuid(),g=afRows_('HUB_GARDENS').find(y=>y.ID===x.GARDEN_ID);
- afSave_('MEMBERS',{ID:memberId,NAME:x.NAME,PHONE:x.PHONE,GARDEN_ID:g.ID,GARDEN_NAME:g.NAME,REGISTERED_AT:afTime_(),RECEIVED_AT:afTime_(),SYNC_STATUS:'synced'});
+ const normalize=v=>String(v||'').replace(/\D/g,'').replace(/^60/,'0');
+ const legacy=afRows_('MEMBERS').filter(y=>y.GARDEN_ID===x.GARDEN_ID);
+ const matches=legacy.filter(y=>normalize(y.PHONE)===normalize(x.PHONE));
+ let memberId;
+ const selected=String(p.linkMemberId||'').trim();
+ if(selected){
+   if(p.identityConfirmed!==true)throw Error('Pengesahan identiti secara manual diperlukan sebelum pautan');
+   const chosen=legacy.find(y=>y.ID===selected);
+   if(!chosen)throw Error('Rekod ahli lama tidak sepadan dengan kebun');
+   if(afRows_('HUB_MEMBERSHIPS').some(y=>y.MEMBER_ID===selected&&y.GARDEN_ID===x.GARDEN_ID&&y.STATUS==='ACTIVE'))throw Error('Rekod lama telah dipautkan kepada akaun lain');
+   memberId=selected;
+ }else{
+   if(matches.length)throw Error('Nombor telefon sudah sepadan dengan ahli lama. Pilih rekod lama dan sahkan identiti dahulu');
+   if(p.newMemberConfirmed!==true)throw Error('Sahkan semakan bahawa pemohon ini ahli baharu');
+   const garden=afRows_('HUB_GARDENS').find(y=>y.ID===x.GARDEN_ID);
+   if(!garden)throw Error('Kebun tidak ditemui');
+   memberId='MBR-'+Utilities.getUuid();
+   afSave_('MEMBERS',{ID:memberId,NAME:x.NAME,PHONE:x.PHONE,GARDEN_ID:garden.ID,GARDEN_NAME:garden.NAME,REGISTERED_AT:afTime_(),RECEIVED_AT:afTime_(),SYNC_STATUS:'synced'});
+ }
  if(!existing)afSpreadsheet_().getSheetByName('HUB_USERS').appendRow([x.EMAIL,x.NAME,'ACTIVE',afTime_()]);
- afSpreadsheet_().getSheetByName('HUB_MEMBERSHIPS').appendRow([x.EMAIL,g.ID,'MEMBER','ACTIVE',memberId,afTime_(),email]);
+ afSpreadsheet_().getSheetByName('HUB_MEMBERSHIPS').appendRow([x.EMAIL,x.GARDEN_ID,'MEMBER','ACTIVE',memberId,afTime_(),email]);
  x.STATUS='APPROVED';x.DECIDED_AT=afTime_();x.DECIDED_BY=email;x.MEMBER_ID=memberId;
  afSave_('HUB_APPLICATIONS',x);afAudit_(email,g.ID,'approveApplication',x.ID);return {status:'APPROVED'};
  }finally{lock.releaseLock()}
@@ -164,6 +196,7 @@ function afAssignAdmin_(email,p){
 function afRoute_(action,p,token){if(action==='requestRegistrationOtp')return afRegistrationOtp_(p);if(action==='submitRegistration')return afRegister_(p);if(action==='requestOtp')return afOtpRequest_(p);if(action==='verifyOtp')return afOtpVerify_(p);const email=afAuth_(token);if(action==='whoami'){const u=afUser_(email);return {email,name:u.NAME,gardens:afMemberships_(email)}}
  if(action==='getHubOverview')return afHubOverview_(email);
  if(action==='listPendingApplications')return afPending_(email,p);
+ if(action==='getLegacyCandidates')return afLegacyCandidates_(email,p);
  if(action==='decideApplication')return afDecide_(email,p);
  if(action==='setGardenAdmin')return afAssignAdmin_(email,p);
  const gardenId=String(p.gardenId||'');const m=afMember_(email,gardenId);
