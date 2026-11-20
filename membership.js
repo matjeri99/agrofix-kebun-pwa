@@ -54,6 +54,39 @@ function register(){
  const close=button(d,'Tutup',()=>d.close(),true);
  close.setAttribute('aria-label','Tutup borang pendaftaran');
 }
+async function reviewLegacyLink(x,reload){
+ const dialog=makeDialog('Semakan Rekod Ahli');
+ const p=status(dialog);p.textContent='Memuatkan senarai rekod kebun…';
+ const entries=document.createElement('select');
+ entries.style.cssText='width:100%;padding:12px;border:1px solid #cadbd2;border-radius:10px;margin:10px 0';
+ dialog.append(entries);
+ const label=document.createElement('label');label.style.cssText='display:flex;gap:8px;font-size:13px;align-items:flex-start;margin:12px 0';
+ const agreed=document.createElement('input');agreed.type='checkbox';
+ const copy=document.createElement('span');copy.textContent='Saya telah mengesahkan identiti pemohon sebelum memautkan rekod.';
+ label.append(agreed,copy);dialog.append(label);
+ const feedback=status(dialog);
+ try{
+  const result=await request('getLegacyCandidates',{applicationId:x.id},true);
+  p.textContent='Pilih rekod asal yang telah disahkan, atau daftar sebagai ahli baharu.';
+  const option=document.createElement('option');option.textContent='— Pilih ahli lama —';option.value='';entries.append(option);
+  for(const member of result.candidates){
+   const opt=document.createElement('option');
+   opt.value=member.id;opt.disabled=member.alreadyLinked;
+   opt.textContent=member.name+' · '+member.phone+(member.matchPhone?' · Telefon sepadan':'')+(member.alreadyLinked?' · Telah dipautkan':'');
+   entries.append(opt);
+  }
+  button(dialog,'Pautkan Rekod Lama',async()=>{
+   if(!agreed.checked||!entries.value){feedback.textContent='Sahkan identiti dan pilih rekod terlebih dahulu.';return}
+   if(!confirm('Sahkan pautan kepada rekod lama yang dipilih?'))return;
+   try{await request('decideApplication',{applicationId:x.id,decision:'APPROVE',linkMemberId:entries.value,identityConfirmed:true},true);dialog.close();await reload()}catch(e){feedback.textContent=e.message}
+  });
+  button(dialog,'Ahli Baharu',async()=>{
+   if(!confirm('Sudah semak bahawa pemohon bukan pemilik rekod lama?'))return;
+   try{await request('decideApplication',{applicationId:x.id,decision:'APPROVE',newMemberConfirmed:true},true);dialog.close();await reload()}catch(e){feedback.textContent=e.message}
+  },true);
+ }catch(e){feedback.textContent=e.message}
+ button(dialog,'Tutup',()=>dialog.close(),true);
+}
 async function pendingPanel(){
  if(!TOKEN())return;
  const d=makeDialog('Permohonan Ahli');
@@ -70,7 +103,7 @@ async function pendingPanel(){
   info.textContent=[x.name,x.email,x.phone,x.gardenId,'Mohon: '+x.appliedAt].join(' · ');panel.append(info);
   for(const [label,decision] of [['Semak & Luluskan','APPROVE'],['Tolak','REJECT']]){
    button(panel,label,async()=>{if(!confirm('Sahkan keputusan '+label+' untuk '+x.name+'?'))return;
-     try{await request('decideApplication',{applicationId:x.id,decision},true);await reload()}catch(e){alert(e.message)}
+     try{if(decision==='APPROVE')await reviewLegacyLink(x,reload);else{await request('decideApplication',{applicationId:x.id,decision},true);await reload()}}catch(e){alert(e.message)}
    },decision==='REJECT');
   }
   area.append(panel);
