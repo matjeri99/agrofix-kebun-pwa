@@ -25,7 +25,36 @@
     }
     $('#checkin').innerHTML=personal?.openAttendance?'🏁 Selesai berkebun dah!!<small>Saya hendak pulang</small>':'🟢 Hai Kebun!!<small>Saya sudah sampai</small>';
   }
+  function isSuperAdmin(){return !!me?.gardens?.some(g=>g.role==='SUPER_ADMIN')}
+  async function showAdmin(){
+    if(!isSuperAdmin()){alertBox('Akses terhad','Hanya Super Admin boleh membuka pusat pentadbiran.');return}
+    document.querySelectorAll('.screen').forEach(e=>e.classList.toggle('active',e.id==='admin'));
+    document.querySelectorAll('[data-page]').forEach(e=>e.classList.remove('active'));
+    window.scrollTo({top:0,behavior:'smooth'});
+    const target=$('#hubGardenList');
+    target.replaceChildren();
+    try{
+      const overview=await api('getHubOverview');
+      const gardens=overview.gardens||[];
+      $('#hubGardens').textContent=gardens.length;
+      $('#hubMembers').textContent=gardens.reduce((n,g)=>n+Number(g.members||0),0);
+      $('#hubSync').textContent='Data pengurusan daripada Google Sheets';
+      for(const g of gardens){
+        const box=document.createElement('div');box.className='garden-item';
+        const title=document.createElement('strong');title.textContent=g.name;
+        const detail=document.createElement('p');detail.textContent='Ahli: '+g.members+' · Tanaman aktif: '+g.activePlantings+' · Akaun aktif: '+g.activeAccounts;
+        const status=document.createElement('small');status.textContent=g.status==='ACTIVE'?'Aktif':'Jemputan';
+        box.append(title,detail,status);target.append(box);
+      }
+    }catch(e){
+      const el=document.createElement('div');el.className='empty';
+      el.textContent='Statistik induk belum dapat dimuatkan. API Super Admin memerlukan deployment Apps Script dan Worker versi terkini. '+e.message;
+      target.append(el);
+    }
+  }
   function setSignedInUI(){
+    const adminButton=$('#adminEntry');
+    if(adminButton){adminButton.hidden=!isSuperAdmin();adminButton.onclick=showAdmin}
     const button=$('#profile [data-needlogin]');
     if(button){button.textContent=me?'Log keluar AgroFix':'Log Masuk AgroFix';button.onclick=()=>{
       if(!me){loginFlow();return}
