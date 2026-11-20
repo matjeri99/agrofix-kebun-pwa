@@ -18,7 +18,7 @@ async function report(){
  d.append(element('p','Pratonton laporan daripada rekod sebenar. Angka yang belum lengkap akan ditandakan dan tidak direka.'));
  const type=select(TYPES);const gardens=select([['KKB-P16','Presint 16'],['KKB-P05','Presint 5'],['KKB-P06','Presint 6'],['KKB-P17','Presint 17'],['KKB-P18','Presint 18']]);
  d.append(element('label','Jenis laporan'));d.append(type);d.append(element('label','Kebun'));d.append(gardens);
- const month=element('input');month.type='month';month.value=new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Kuala_Lumpur'}).slice(0,7);month.style.cssText='width:100%;padding:12px;margin:9px 0 14px;border:1px solid #cbdccf;border-radius:12px';
+ const month=element('input');month.type='month';const p=new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Kuala_Lumpur',year:'numeric',month:'2-digit'}).formatToParts(new Date());month.value=p.find(x=>x.type==='year').value+'-'+p.find(x=>x.type==='month').value;month.style.cssText='width:100%;padding:12px;margin:9px 0 14px;border:1px solid #cbdccf;border-radius:12px';
  d.append(element('label','Bulan'));d.append(month);
  const status=element('p','Pilih laporan untuk melihat ringkasan.');status.style.fontSize='13px';d.append(status);
  const output=element('div');output.style.cssText='display:grid;gap:12px;margin:14px 0';d.append(output);
