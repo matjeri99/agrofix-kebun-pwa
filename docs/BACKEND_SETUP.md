@@ -12,7 +12,7 @@
 ## Langkah A — Apps Script baharu (tidak menyentuh APK lama)
 
 1. Buka Sheet di atas → Extensions → Apps Script.
-2. **Jangan gantikan Code.gs lama** jika ia masih digunakan oleh APK. Gunakan projek Apps Script baharu yang dipautkan kepada spreadsheet itu, atau tambah fail kod baharu selepas menyemak konflik nama fungsi (contohnya `doPost`). Cara paling selamat ialah projek standalone baharu, dan tukarkan `SpreadsheetApp.getActiveSpreadsheet()` kepada `SpreadsheetApp.openById('1Xtx7p3qOZB6h3lYOF-w8UIwRsHb8NShyjIilX2UnzJc')` dalam source **projek baharu sahaja**.
+2. **Jangan gantikan Code.gs lama** jika ia masih digunakan oleh APK. Gunakan projek Apps Script baharu yang dipautkan kepada spreadsheet itu, atau tambah fail kod baharu selepas menyemak konflik nama fungsi (contohnya `doPost`). Cara paling selamat ialah **projek standalone baharu**. Source baharu sudah disediakan menggunakan `SpreadsheetApp.openById(...)` untuk spreadsheet asal.
 3. Tampal kandungan `backend/Code.gs`.
 4. Project Settings → Script properties: `AGROFIX_GATEWAY_SECRET` dan `AGROFIX_AUTH_SECRET`, **dua nilai rawak berbeza** sekurang-kurangnya 32 aksara. Jangan kongsikan dalam repo, chat atau screenshot.
 5. Deploy → New deployment → Web app → Execute as Me → Who has access Anyone → Deploy, salin URL `/exec`.
